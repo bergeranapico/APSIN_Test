@@ -12,11 +12,10 @@ dut = rm.open_resource('TCPIP0::' + ip + '::inst0::INSTR')
 # Geräte initialisieren
 speki.read_termination = '\n'
 speki.write_termination = '\n'
-speki.write('*CLS') # clear error queue
+speki.write('*CLS')  # clear error queue
 speki.write('calc:mark:aoff')  # alle Marker entfernen
 err_speki = speki.query('syst:err?')
 print('Speki error: ' + err_speki)
-print('\n')
 
 
 dut.read_termination = '\n'
@@ -28,28 +27,35 @@ dut.write('POW:MODE CW')  # select the power mode CW
 err_dut = dut.query('syst:err?')
 dut.query('*OPC?')
 print('DUT error: ' + err_dut)
-print('\n')
+
 
 # Test 1: RF OUT
-testf = 250e6  # Testfrequenz definieren
-
-speki.write('disp:trac1:y:rlev 20dBm')  # Powerlevel am Speki einstellen
-speki.write('freq:cent ' + str(testf))
-speki.write('freq:span ' + str(2 * testf))
-
-
-dut.write('POW 0')  # Poweroutput vom DUT einstellen
-dut.write('freq ' + str(testf))
-dut.write('OUTP ON')  # Output am DUT aktivieren
-sleep(0.1)
-
-speki.write('calc:mark1:on')
-speki.write('calc:mark1:max')  # Marker auf den peak setzen
-value1 = speki.query('calc:mark1:x?')  # Frequenz vom Marker abfragen
-sleep(0.1)
-value2 = (float(value1)-testf)/testf
-print(value1)
-print(value2)
+power = 0  # Leistungsoutput DUT in dBm
+t = 0.5  # Wartezeit in Sekunden
+testf = [5e4, 5e5, 5e6, 5e7, 5e8, 5e9]
+for f in testf:
+    speki.write('disp:trac1:y:rlev ' + str(power + 5) + 'dBm')  # Powerlevel am Speki einstellen
+    speki.write('freq:cent ' + str(f))
+    speki.write('freq:span ' + str(2 * f))
+    dut.write('POW ' + str(power))  # Poweroutput vom DUT einstellen
+    dut.write('freq ' + str(f))
+    dut.write('OUTP ON')  # Output am DUT aktivieren
+    sleep(t)
+    speki.write('calc:mark1:on')
+    sleep(t)
+    speki.write('calc:mark1:max')  # Marker auf den peak setzen
+    sleep(t)
+    freq = speki.query('calc:mark1:x?')  # Frequenz vom Marker abfragen
+    sleep(t)
+    dut.write('OUTP OFF')  # Output am DUT deaktivieren
+    dev = (float(freq) - f) / f  # Abweichung von der gemessenen zur eingestellten Frequenz berechnen
+    print(freq + ' Hz')
+    print('rel. Abweichung: ' + str(dev))
+    if abs(dev) < 0.015:
+        print('Frequenzabweichung < 1.5% bei ' + str(f) + ' Hz')
+    else:
+        print('Achtung: Frequenzabweichung > 1.5% bei ' + str(f))
+        break
 
 
 # Test 2:
