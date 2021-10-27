@@ -57,7 +57,6 @@ for f in testf:
         print('Achtung: Frequenzabweichung > 1.5% bei ' + str(f))
         break
 
-
 # Test 2:
 
 # Test xx: Frequenz sweep
