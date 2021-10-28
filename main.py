@@ -1,13 +1,12 @@
 from time import sleep
 import pyvisa as visa
-from pyvisa import VisaIOError
 
 # Initialisierung
 rm = visa.ResourceManager()
 speki = rm.open_resource('GPIB1::20::INSTR')  # Verbindung zu Speki erstellen
-ip_dut = '192.168.1.100'  # ip-adresse vom DUT
+ip_dut = '192.168.1.186'  # ip-adresse vom DUT
 dut = rm.open_resource('TCPIP0::' + ip_dut + '::inst0::INSTR')  # Verbindung zu DUT erstellen
-ip_geni = '192.168.1.186'
+ip_geni = '192.168.1.100'
 geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
 
 speki.read_termination = '\n'
@@ -39,6 +38,7 @@ print('Geni error: ' + err_geni)
 
 t = 0.5  # Wartezeit zwischen Befehlen [s]
 
+
 # Funktion, welche alle REF-OUT-Frequenzen eines APSIN/APULN bestimmt
 def refout_freq(device):
     if device == 'dut':
@@ -64,6 +64,7 @@ def refout_freq(device):
     else:
         print('invalid function input')
 
+
 # --------------------------------------------------------------------------------------------------------------------
 q = input('RF OUT testen? (y/n)')
 if q == 'y':
@@ -75,6 +76,7 @@ if q == 'y':
     dut.write('POW ' + str(power))  # Poweroutput vom DUT setzen
     dut.write('OUTP ON')  # Output am DUT aktivieren
     testf = [5e4, 5e5, 5e6, 5e7, 5e8, 5e9]  # Testpunkte definieren
+
     for f in testf:
         speki.write('freq:cent ' + str(f))  # Center einstellen
         speki.write('freq:span ' + str(0.1 * f))  # Span einstellen
@@ -102,6 +104,7 @@ if q == 'y':
     print('REF OUT mit Speki verbinden und Enter drücken')
     input()
     f_ref = refout_freq('dut')
+
     for f in f_ref:
         speki.write('freq:cent ' + str(f))  # Center einstellen
         speki.write('freq:span ' + str(0.1 * f))  # Span einstellen
@@ -128,8 +131,26 @@ if q == 'y':
 # Test 3: REF IN
 q = input('REF IN testen? (y/n)')
 if q == 'y':
-    geni.write('rosc:outp on')
-
+    print('REF IN DUT mit REF OUT Geni verbinden')
+    input()
+    f_ref = refout_freq('geni')
+    for f in f_ref:
+        geni.write('rosc:outp on')  # REF OUT vom Geni einschalten
+        sleep(t)
+        geni.write('rosc:outp:freq ' + str(f) + 'Hz')  # REF OUT Frequenz vom Geni setzen
+        dut.write('rosc:sour ext')  # REF IN Quelle vom DUT auf EXT setzen
+        sleep(t)
+        dut.write('rosc:ext:freq ' + str(f))  # REF IN Frequenz vom DUT setzen
+        sleep(t)
+        dut.write('rosc:lock:test')  # muss eingefügt werden, damit der aktuelle lockstatus aktualisiert wird
+        sleep(3)  # gemäss Programming manual muss nach rosc:lock:test mind. 3s gewartet werden
+        lock_status = dut.query('rosc:lock?')  # lock status abfragen
+        if lock_status == '0':
+            print('REF IN test failed: Lock war nicht möglich')
+        elif lock_status == '1':
+            print('REF IN test erfolgreich: Lock mit Geni ist erfolgt')
+        geni.write('rosc:outp off')  # REF OUT vom Geni wieder ausschalten
+        dut.write('rosc:sour int')  # REF IN Quelle vom DUT wieder auf INT setzen
 
 # Test 4: FUNC OUT
 
