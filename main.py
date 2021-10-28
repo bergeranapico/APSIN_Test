@@ -3,18 +3,12 @@ import pyvisa as visa
 from pyvisa import VisaIOError
 
 # Initialisierung
-
-
 rm = visa.ResourceManager()
-
-try:
-    speki = rm.open_resource('GPIB1::20::INSTR')  # Verbindung zu Speki erstellen
-    ip_dut = '192.168.1.100'  # ip-adresse vom DUT
-    dut = rm.open_resource('TCPIP0::' + ip_dut + '::inst0::INSTR')  # Verbindung zu DUT erstellen
-    ip_geni = '192.168.1.186'
-    geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
-except VisaIOError:
-    print('Gerät nicht verbunden oder falsche IP')
+speki = rm.open_resource('GPIB1::20::INSTR')  # Verbindung zu Speki erstellen
+ip_dut = '192.168.1.100'  # ip-adresse vom DUT
+dut = rm.open_resource('TCPIP0::' + ip_dut + '::inst0::INSTR')  # Verbindung zu DUT erstellen
+ip_geni = '192.168.1.186'
+geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
 
 speki.read_termination = '\n'
 speki.write_termination = '\n'
@@ -33,21 +27,42 @@ err_dut = dut.query('syst:err?')
 dut.query('*OPC?')
 print('DUT error: ' + err_dut)
 
-try:
-    geni.read_termination = '\n'
-    geni.write_termination = '\n'
-    geni.write('*CLS')  # clear the error queue
-    geni.write('syst:pres')  # set to the default settings
-    geni.query('*OPC?')  # wait for commands to be completed
-    geni.write('POW:MODE CW')  # select the power mode CW
-    err_geni = dut.query('syst:err?')
-    geni.query('*OPC?')
-    print('Geni error: ' + err_geni)
-except VisaIOError:
-    print('Gerät nicht verbunden oder falsche IP')
-
+geni.read_termination = '\n'
+geni.write_termination = '\n'
+geni.write('*CLS')  # clear the error queue
+geni.write('syst:pres')  # set to the default settings
+geni.query('*OPC?')  # wait for commands to be completed
+geni.write('POW:MODE CW')  # select the power mode CW
+err_geni = dut.query('syst:err?')
+geni.query('*OPC?')
+print('Geni error: ' + err_geni)
 
 t = 0.5  # Wartezeit zwischen Befehlen [s]
+
+# Funktion, welche alle REF-OUT-Frequenzen eines APSIN/APULN bestimmt
+def refout_freq(device):
+    if device == 'dut':
+        f_ref_min = float(dut.query('rosc:outp:freq? min'))
+        f_ref_max = float(dut.query('rosc:outp:freq? max'))
+        if f_ref_min == f_ref_max:
+            return [f_ref_min]
+        else:
+            if f_ref_max / f_ref_min == 10:
+                return [f_ref_min, f_ref_max]
+            else:
+                return [f_ref_min, f_ref_min * 10, f_ref_max]
+    elif device == 'geni':
+        f_ref_min = float(geni.query('rosc:outp:freq? min'))
+        f_ref_max = float(geni.query('rosc:outp:freq? max'))
+        if f_ref_min == f_ref_max:
+            return [f_ref_min]
+        else:
+            if f_ref_max / f_ref_min == 10:
+                return [f_ref_min, f_ref_max]
+            else:
+                return [f_ref_min, f_ref_min * 10, f_ref_max]
+    else:
+        print('invalid function input')
 
 # --------------------------------------------------------------------------------------------------------------------
 q = input('RF OUT testen? (y/n)')
@@ -81,20 +96,12 @@ if q == 'y':
     speki.write('calc:mark1 off')  # Marker ausschalten
 
 q = input('REF OUT testen? (y/n)')
+
 if q == 'y':
     # Test 2: REF OUT
     print('REF OUT mit Speki verbinden und Enter drücken')
     input()
-    # f_ref bestimmen
-    f_ref_min = float(dut.query('rosc:outp:freq? min'))
-    f_ref_max = float(dut.query('rosc:outp:freq? max'))
-    if f_ref_min == f_ref_max:
-        f_ref = [f_ref_min]
-    else:
-        if f_ref_max/f_ref_min == 10:
-            f_ref = [f_ref_min, f_ref_max]
-        else:
-            f_ref = [f_ref_min, f_ref_min * 10, f_ref_max]
+    f_ref = refout_freq('dut')
     for f in f_ref:
         speki.write('freq:cent ' + str(f))  # Center einstellen
         speki.write('freq:span ' + str(0.1 * f))  # Span einstellen
@@ -120,7 +127,8 @@ if q == 'y':
 
 # Test 3: REF IN
 q = input('REF IN testen? (y/n)')
-# if q == 'y':
+if q == 'y':
+    geni.write('rosc:outp on')
 
 
 # Test 4: FUNC OUT
