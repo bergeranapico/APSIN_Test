@@ -1,13 +1,14 @@
 from time import sleep
 import pyvisa as visa
 import numpy as np
+import math
 
 # Initialisierung
 rm = visa.ResourceManager()
 speki = rm.open_resource('GPIB1::20::INSTR')  # Verbindung zu Speki erstellen
-ip_dut = '192.168.1.186'  # ip-adresse vom DUT
+ip_dut = '192.168.1.100'  # ip-adresse vom DUT
 dut = rm.open_resource('TCPIP0::' + ip_dut + '::inst0::INSTR')  # Verbindung zu DUT erstellen
-ip_geni = '192.168.1.100'
+ip_geni = '192.168.1.186'
 geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
 
 speki.read_termination = '\n'
@@ -37,7 +38,7 @@ err_geni = dut.query('syst:err?')
 geni.query('*OPC?')
 print('Geni error: ' + err_geni)
 
-t = 0.4  # Wartezeit zwischen Befehlen [s]
+t = 0.5  # Wartezeit zwischen Befehlen definieren [s]
 
 
 # Funktion, welche alle REF-OUT-Frequenzen eines APSIN/APULN bestimmt
@@ -176,7 +177,42 @@ if q == 'y':
         dut.write('rosc:sour int')  # REF IN Quelle vom DUT wieder auf INT setzen
 
 # TODO: Test 4: FUNC OUT
-# es genügt, nur den Sinus mit dem Speki zu testen, FUNC OUT heisst LF OUT im Signal Generator GUI
+# benötigte Geräte: DUT und Speki
+# prüft bei verschiedenen Frequenzen, ob der FUNC OUT Sinus die korrekte Frequenz und Leistung ausgibt
+q = input('FUNC OUT testen? (y/n)')
+if q == 'y':
+    f_lf = [2e5, 4e5, 6e5, 8e5, 1e6]  # Frequenzen, die getestet werden
+    amp = 0.5  # Spannungsamplitude definieren [V]
+    amp_dBm = math.ceil(10 * math.log10((amp**2/50)*1000))  # berechne theoretische, gerundete Leistung in dBm
+    sleep(t)
+    speki.write('disp:trac1:y:rlev ' + str(amp_dBm + 15))  # setze Powerlevel am Speki mit 5dB Marge
+    dut.write('lfo:sour lfg')
+    dut.write('lfo:shap sine')
+    dut.write('lfo:ampl ' + str(amp))  # Spannungsamplitude am DUT setzen
+    dut.write('lfo:stat on')
+    for f in f_lf:
+        speki.write('freq:cent ' + str(f))
+        speki.write('freq:span ' + str(0.1 * f))
+        dut.write('lfo:freq ' + str(f))
+        sleep(t)
+        speki.write('calc:mark1 on')  # Marker einschalten
+        sleep(t)
+        speki.write('calc:mark1:max')  # Marker auf Peak setzen
+        sleep(t)
+        f_func = speki.query('calc:mark1:x?')
+        sleep(t)
+        p_func = speki.query('calc:mark1:y?')
+        dev_funcout_f = (float(f_func) - f) / f
+        print('rel. Abweichung f FUNC OUT: ' + str(dev_funcout_f))
+        if dev_funcout_f <= 0.005:
+            print('FUNC OUT: Test erfolgreich bei ' + str("{:.3f}".format(f)) + 'Hz')
+        else:
+            print('FUNC OUT: Test failed bei ' + str("{:.3f}".format(f)) + 'Hz')
+    dut.write('lfo:stat off')
+    speki.write('calc:mark1:off')
+
+
+
 # TODO: Test 5: TRIG IN
 # so testen, wie Sony gezeigt hat
 # TODO: Test 6: AM PULSE
