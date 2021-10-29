@@ -1,5 +1,6 @@
 from time import sleep
 import pyvisa as visa
+import numpy as np
 
 # Initialisierung
 rm = visa.ResourceManager()
@@ -36,7 +37,7 @@ err_geni = dut.query('syst:err?')
 geni.query('*OPC?')
 print('Geni error: ' + err_geni)
 
-t = 0.5  # Wartezeit zwischen Befehlen [s]
+t = 0.4  # Wartezeit zwischen Befehlen [s]
 
 
 # Funktion, welche alle REF-OUT-Frequenzen eines APSIN/APULN bestimmt
@@ -65,31 +66,50 @@ def refout_freq(device):
         print('invalid function input')
 
 
+# Frequenzgrenzen für RF OUT-Test bestimmen
+fmin_dut = dut.query('freq? min')
+fmax_dut = dut.query('freq? max')
+# fmin_speki = speki.query('freq:start? min')
+fmax_speki = speki.query('freq:stop? max')
+fmin = float(fmin_dut)
+if fmax_dut < fmax_speki:
+    fmax = float(fmax_dut)
+else:
+    fmax = float(fmax_speki)
+
 # --------------------------------------------------------------------------------------------------------------------
+# Test 1: RF OUT
+# benötigte Geräte: DUT und Speki
+# prüft an verschiedenen Messpunkten, ob Frequenz und Powerlevel eingehalten werden
 q = input('RF OUT testen? (y/n)')
 if q == 'y':
-    # Test 1: RF OUT
     print('RF OUT mit Speki verbinden und Enter drücken')
     input()
-    power = 0  # Leistungsoutput DUT in dBm
-    speki.write('disp:trac1:y:rlev ' + str(power + 5) + 'dBm')  # Powerlevel am Speki setzen
+    power = 0  # Poweroutput DUT in dBm
+    Messpunkte = 5
+    speki.write('disp:trac1:y:rlev ' + str(power + 5) + 'dBm')  # Powerlevel am Speki (5 dB höher als DUT-Power)
     dut.write('POW ' + str(power))  # Poweroutput vom DUT setzen
     dut.write('OUTP ON')  # Output am DUT aktivieren
-    testf = [5e4, 5e5, 5e6, 5e7, 5e8, 5e9]  # Testpunkte definieren
+    testf = np.linspace(fmin, fmax, num=Messpunkte)  # Testpunkte definieren
 
     for f in testf:
         speki.write('freq:cent ' + str(f))  # Center einstellen
         speki.write('freq:span ' + str(0.1 * f))  # Span einstellen
-        speki.write('swe:time 0.25s')
+        speki.write('swe:time 0.25s')  # Sweep time einstellen
         dut.write('freq ' + str(f))  # Frequenz DUT einstellen
-        sleep(0.1)
         speki.write('calc:mark1 on')  # Marker einschalten
+        sleep(t)
         speki.write('calc:mark1:max')  # Marker auf Peak setzen
         sleep(t)
-        freq_rf = speki.query('calc:mark1:x?')  # Frequenz vom Marker abfragen
-        dev_rf = (float(freq_rf) - f) / f  # Abweichung von der gemessenen zur eingestellten Frequenz berechnen
-        print(freq_rf + ' Hz')
-        print('rel. Abweichung: ' + str("{:.3f}".format(dev_rf)))  # relative Abweichung ausgeben mit 3 Dezimalstellen
+        freq_rf = float(speki.query('calc:mark1:x?'))  # Frequenz vom Marker abfragen
+        sleep(t)
+        pow_rf = float(speki.query('calc:mark1:y?'))  # Powerlevel vom Marker abfragen
+        dev_rf = (freq_rf - f) / f  # Abweichung von der gemessenen zur eingestellten Frequenz berechnen
+        dev_pow = pow_rf - power
+        print(str(freq_rf) + ' Hz')
+        print(str(pow_rf) + 'dBm')
+        print('rel. Abweichung f: ' + str("{:.3f}".format(dev_rf)))  # relative Abweichung ausgeben mit 3 Dezimalstellen
+        print('Abweichung power: ' + str("{:.2f}".format(dev_pow)) + 'dBm')
         if abs(dev_rf) < 0.01:
             print('Frequenzabweichung < 1% bei ' + str(f) + ' Hz')
         else:
@@ -97,10 +117,13 @@ if q == 'y':
     dut.write('OUTP OFF')  # Output am DUT deaktivieren
     speki.write('calc:mark1 off')  # Marker ausschalten
 
-q = input('REF OUT testen? (y/n)')
 
+# Test 2: REF OUT
+# benötigte Geräte: DUT und Speki
+# prüft, ob der REFOUT die Frequenzen korrekt ausgibt
+
+q = input('REF OUT testen? (y/n)')
 if q == 'y':
-    # Test 2: REF OUT
     print('REF OUT mit Speki verbinden und Enter drücken')
     input()
     f_ref = refout_freq('dut')
@@ -116,11 +139,11 @@ if q == 'y':
         speki.write('calc:mark1:max')  # Marker auf Peak setzen
         sleep(t)
         freq_refout = speki.query('calc:mark1:x?')  # Frequenz vom Marker abfragen
-        print(freq_refout + ' Hz')
+        print('f: ' + freq_refout + ' Hz')
         dev_refout = (float(freq_refout) - f) / f
         print('rel. Abweichung: ' + str("{:.3f}".format(dev_refout)))
 
-        # prüfen, ob REF OUT-Frequenz näherungsweise 10 MHz beträgt
+        # prüfen, ob REF OUT-Frequenz weniger als 0.5% vom Sollwert abweicht
         if abs(dev_refout) < 0.005:
             print('REF OUT-Test erfolgreich')
         else:
@@ -152,15 +175,17 @@ if q == 'y':
         geni.write('rosc:outp off')  # REF OUT vom Geni wieder ausschalten
         dut.write('rosc:sour int')  # REF IN Quelle vom DUT wieder auf INT setzen
 
-# Test 4: FUNC OUT
-
-# Test 5: TRIG IN
-
-# Test 6: AM PULSE
-
-# Test 7: PHI M
-
+# TODO: Test 4: FUNC OUT
+# es genügt, nur den Sinus mit dem Speki zu testen, FUNC OUT heisst LF OUT im Signal Generator GUI
+# TODO: Test 5: TRIG IN
+# so testen, wie Sony gezeigt hat
+# TODO: Test 6: AM PULSE
+# noch unklar wie testen
+# TODO: Test 7: PHI M
+# noch unklar wie testen
 
 # close visa connections
 speki.close()
 dut.close()
+
+# TODO: alle Tests als Funktionen definieren, und danach die einzelnen Funktionen aufrufen um den Tests durchzuführen
