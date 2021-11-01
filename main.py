@@ -6,10 +6,10 @@ import math
 # Initialisierung (Funktion erstellen)
 rm = visa.ResourceManager()
 speki = rm.open_resource('GPIB1::20::INSTR')  # Verbindung zu Speki erstellen
-ip_dut = '192.168.1.186'  # ip-adresse vom DUT
+ip_dut = '192.168.1.186'  # IP-Adresse DUT
 dut = rm.open_resource('TCPIP0::' + ip_dut + '::inst0::INSTR')  # Verbindung zu DUT erstellen
-# ip_geni = '192.168.1.186'
-# geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
+ip_geni = '192.168.1.188'  # IP-Adresse Geni
+geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
 
 speki.read_termination = '\n'
 speki.write_termination = '\n'
@@ -28,15 +28,15 @@ err_dut = dut.query('syst:err?')
 dut.query('*OPC?')
 print('DUT error: ' + err_dut)
 
-# geni.read_termination = '\n'
-# geni.write_termination = '\n'
-# geni.write('*CLS')  # clear the error queue
-# geni.write('syst:pres')  # set to the default settings
-# geni.query('*OPC?')  # wait for commands to be completed
-# geni.write('POW:MODE CW')  # select the power mode CW
-# err_geni = dut.query('syst:err?')
-# geni.query('*OPC?')
-# print('Geni error: ' + err_geni)
+geni.read_termination = '\n'
+geni.write_termination = '\n'
+geni.write('*CLS')  # clear the error queue
+geni.write('syst:pres')  # set to the default settings
+geni.query('*OPC?')  # wait for commands to be completed
+geni.write('POW:MODE CW')  # select the power mode CW
+err_geni = dut.query('syst:err?')
+geni.query('*OPC?')
+print('Geni error: ' + err_geni)
 
 t = 0.5  # Wartezeit zwischen Befehlen definieren [s]
 
@@ -55,16 +55,16 @@ def refout_freq(device):
                 return [f_ref_min, f_ref_max]
             else:
                 return [f_ref_min, f_ref_min * 10, f_ref_max]
- #   elif device == 'geni':
-  #      f_ref_min = float(geni.query('rosc:outp:freq? min'))
-   #     f_ref_max = float(geni.query('rosc:outp:freq? max'))
-    #    if f_ref_min == f_ref_max:
-     #       return [f_ref_min]
-      #  else:
-       #     if f_ref_max / f_ref_min == 10:
-        #        return [f_ref_min, f_ref_max]
-         #   else:
-          #      return [f_ref_min, f_ref_min * 10, f_ref_max]
+    elif device == 'geni':
+        f_ref_min = float(geni.query('rosc:outp:freq? min'))
+        f_ref_max = float(geni.query('rosc:outp:freq? max'))
+        if f_ref_min == f_ref_max:
+            return [f_ref_min]
+        else:
+            if f_ref_max / f_ref_min == 10:
+                return [f_ref_min, f_ref_max]
+            else:
+                return [f_ref_min, f_ref_min * 10, f_ref_max]
     else:
         print('invalid device name')
 
@@ -257,18 +257,64 @@ if q == 'y':
     speki.write('calc:mark1:off')  # Marker abschalten
 
 # TODO: Test 6: TRIG IN
+# benötigte Geräte: Geni, DUT, Speki
+# prüft, ob mit dem TRIG IN port vom DUT ein Frequenzsweep durchgeführt werden kann
 # Geni settings setzen: 5000 Hz, Amplitude auf 0.5V, Square-Shape, LFGenerator mode (nicht Trig out!)
+q = input('TRIG IN testen? (y/n)')
+if q == 'y':
+    print('TRIG/FUNC OUT vom Geni mit TRIG IN vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
+    input()
+    amp = 0.5  # Spannungsamplitude definieren [V]
+    amp_dBm = math.ceil(10 * math.log10((amp ** 2 / 50) * 1000))  # berechne theoretische, gerundete Leistung in dBm
+    freq_trig = 20
+    freq_start = 1e6
+    freq_stop = 2e6
+    pts = 100
 
-# DUT settings setzen: Trigger mode auf init:cont off, source auf ext, trigger parameter single entry--> trig:type poin
+    # settings speki setzen
+    speki.write('disp:trac1:y:rlev ' + str(amp_dBm + 5))  # powerlevel speki einstellen
+    speki.write('freq:start ' + str(freq_start))  # center frequenz speki einstellen
+    speki.write('freq:stop ' + str(freq_stop))  # span frequenz speki einstellen
 
-#
+    # settings geni setzen
+    geni.write('lfo:sour lfg')  # TRIG OUT Geni auf low frequency generator setzen
+    geni.write('lfo:shap squ')  # TRIG OUT Form auf square setzen
+    geni.write('lfo freq ' + str(freq_trig))  # TRIG OUT Frequenz setzen
+    geni.write('lfo:ampl ' + str(amp))  # TRIG OUT Amplitude setzen
+
+    # settings dut setzen
+    dut.write('init:cont on')  # Trigger-Modus am DUT setzen
+    dut.write('trig:sour ext')  # Trigger-Quelle am DUT auf "ext" setzen
+    dut.write('trig:type point')  # Trigger-Typ am DUT auf "point" setzen
+
+    # DUT freq sweep einstellen von 1 MHz bis 1 GHz, 100punkte, 50 ms dwell time, sweep und RF output einschalten
+    # dut.write('swe:coun 1')
+    dut.write('swe:poin ' + str(pts))
+    dut.write('swe:dwel 0.2')
+    dut.write('freq:star ' + str(freq_start))
+    dut.write('freq:stop ' + str(freq_stop))
+    dut.write('swe:blan on')
+    dut.write('outp on')
+    dut.write('freq:mode swe')
+
+    # LF generator von Geni einschalten, um sweep zu starten
+    geni.write('lfo:stat on')
+    t = input('Ist der Sweep am Speki erkennbar? (y/n)')
+    if t == 'y':
+        print('TRIG IN erfolgreich getestet')
+    else:
+        print('TRIG IN Test failed')
+
+    dut.write('outp off')
+    dut.write('freq:mode cw')
+    geni.write('lfo:stat off')
 
 # TODO: Test 7: AM PULSE
-# noch unklar wie testen
+# noch unklar wie testen, ist ein Input
 # TODO: Test 8: PHI M
-# noch unklar wie testen
+# noch unklar wie testen, ist ein Input
 
-# close visa connections
+# schliesse die visa Verbindungen
 speki.close()
 dut.close()
 
