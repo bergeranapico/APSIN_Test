@@ -38,12 +38,14 @@ err_geni = dut.query('syst:err?')
 geni.query('*OPC?')
 print('Geni error: ' + err_geni)
 
-t = 0.5  # Wartezeit zwischen Befehlen definieren [s]
+t = 0.6  # Wartezeit zwischen Befehlen definieren [s]
 
 # TODO: Abfragen, ob ein APSIN oder ein APULN getestet werden soll
+# TODO: Errorhandling sauberer gestalten, falls ein Gerät einen Error aufweist, sollte Programm abgebrochen
+#  und Gerät resettet werden
 
 
-# Funktion, welche alle REF-OUT-Frequenzen eines APSIN/APULN bestimmt
+# Funktion, welche alle REF-OUT-Frequenzen eines APSIN/APULN durch automatische Abfrage bestimmt
 def refout_freq(device):
     if device == 'dut':
         f_ref_min = float(dut.query('rosc:outp:freq? min'))
@@ -78,7 +80,7 @@ fmin = float(fmin_dut)
 if fmax_dut < fmax_speki:
     fmax = float(fmax_dut)
 else:
-    fmax = float(fmax_speki)
+    fmax = float(fmax_speki) - 0.5e9  # 0.5 GHz abziehen, damit noch mit vernünftigem Span gemessen werden kann
 
 # --------------------------------------------------------------------------------------------------------------------
 # Test 1: RF OUT
@@ -91,14 +93,15 @@ if q == 'y':
     power = 0  # Poweroutput DUT in dBm
     Messpunkte = 5
     speki.write('disp:trac1:y:rlev ' + str(power + 5) + 'dBm')  # Powerlevel am Speki (5 dB höher als DUT-Power)
+    speki.write('swe:time:auto on')  # Sweep time auf automatisch
     dut.write('POW ' + str(power))  # Poweroutput vom DUT setzen
     dut.write('OUTP ON')  # Output am DUT aktivieren
     testf = np.linspace(fmin, fmax, num=Messpunkte)  # Testpunkte definieren
 
     for f in testf:
         speki.write('freq:cent ' + str(f))  # Center einstellen
-        speki.write('freq:span ' + str(0.1 * f))  # Span einstellen
-        speki.write('swe:time 0.25s')  # Sweep time auf 0.25s setzen
+        span = 1562.5 * math.pow(f, 0.301)
+        speki.write('freq:span ' + str(span))  # Span einstellen
         dut.write('freq ' + str(f))  # Frequenz DUT einstellen
         speki.write('calc:mark1 on')  # Marker einschalten
         sleep(t)
@@ -109,14 +112,12 @@ if q == 'y':
         pow_rf = float(speki.query('calc:mark1:y?'))  # Powerlevel vom Marker abfragen
         dev_rf = (freq_rf - f) / f  # Abweichung von der gemessenen zur eingestellten Frequenz berechnen
         dev_pow = pow_rf - power
-        print(str(freq_rf) + ' Hz')
-        print(str(pow_rf) + 'dBm')
-        print('rel. Abweichung f: ' + str("{:.3f}".format(dev_rf)))  # relative Abweichung ausgeben mit 3 Dezimalstellen
-        print('Abweichung power: ' + str("{:.2f}".format(dev_pow)) + 'dBm')
+        print('rel. Abweichung f: ' + str("{:.4f}".format(dev_rf)) + ' bei ' + str(f) + ' Hz')
+        print('Abweichung Power: ' + str("{:.2f}".format(dev_pow)) + ' dB')
         if abs(dev_rf) < 0.01:
-            print('Frequenzabweichung < 1% bei ' + str(f) + ' Hz')
+            print('RF OUT Test erfolgreich bei ' + str(f) + ' Hz')
         else:
-            print('Achtung: Frequenzabweichung > 1% bei ' + str(f))
+            print('RF OUT Test failed bei ' + str(f) + ' Hz')
     dut.write('OUTP OFF')  # Output am DUT deaktivieren
     speki.write('calc:mark1 off')  # Marker ausschalten
     speki.write('swe:time:auto on')  # Sweep-Modus wieder auf automatisch schalten
@@ -160,9 +161,10 @@ if q == 'y':
 # prüft, ob Lock mit anderem Geni möglich ist
 q = input('REF IN testen? (y/n)')
 if q == 'y':
-    print('REF IN vom DUT mit REF OUT Geni verbinden')
+    print('REF IN vom DUT mit REF OUT Geni verbinden und Enter drücken')
     input()
-    f_ref = refout_freq('geni')
+    # f_ref = refout_freq('geni') (alter APSIN20G kennt scheinbar die Abfrage rosc:outp:freq? min/max nicht....)
+    f_ref = [100e6]
     for f in f_ref:
         geni.write('rosc:outp on')  # REF OUT vom Geni einschalten
         sleep(t)
@@ -189,7 +191,7 @@ q = input('FUNC OUT testen? (y/n)')
 if q == 'y':
     print('FUNC OUT vom DUT mit Speki verbinden und Enter drücken')
     input()
-    f_lf = np.linspace(10e4, 3e6, num=10)  # Frequenzen, die getestet werden
+    f_lf = np.linspace(10e4, 3e6, num=5)  # Frequenzen, die getestet werden
     amp = 0.5  # Spannungsamplitude definieren [V]
     amp_dBm = math.ceil(10 * math.log10((amp**2/50)*1000))  # berechne theoretische, gerundete Leistung in dBm
     sleep(t)
@@ -226,7 +228,7 @@ q = input('TRIG OUT testen? (y/n)')
 if q == 'y':
     print('TRIG OUT vom DUT mit Speki verbinden und Enter drücken')
     input()
-    f_trig = np.linspace(10e4, 3e6, num=10)  # Frequenzen, die getestet werden
+    f_trig = np.linspace(10e4, 3e6, num=5)  # Frequenzen, die getestet werden
     amp = 0.5  # Spannungsamplitude definieren [V]
     amp_dBm = math.ceil(10 * math.log10((amp ** 2 / 50) * 1000))  # berechne theoretische, gerundete Leistung in dBm
     sleep(t)
@@ -318,4 +320,4 @@ if q == 'y':
 speki.close()
 dut.close()
 
-# TODO: alle Tests als Funktionen definieren, danach die einzelnen Funktionen aufrufen um den Tests durchzuführen
+# TODO: alle Tests als Funktionen definieren, danach die einzelnen Funktionen aufrufen um die Tests durchzuführen
