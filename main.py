@@ -336,6 +336,7 @@ if q == 'y':
     geni.write('lfo:stat off')
 
 # Test 7: MOD IN
+# benötigte Geräte: Geni, DUT, Speki
 q = input('MOD IN testen? (y/n)')
 if q == 'y':
     print('TRIG/FUNC OUT vom Geni mit MOD IN vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
@@ -356,7 +357,7 @@ if q == 'y':
     dut.write('pow:mode CW')  # CW-Modus am Dut einstellen
     dut.write('freq ' + str(freq_modin))  # CW-Frequenz am DUT setzen
     dut.write('POW 0')  # Poweroutput vom DUT auf 0dBm setzen
-    dut.write('fm:sour ext')  # FM-Quelle afu extern setzen
+    dut.write('fm:sour ext')  # FM-Quelle auf extern setzen
     dut.write('fm:sens 5000')  # FM-Sensitivität auf 5kHz/V setzen
 
     # Geni und DUT einschalten
@@ -375,10 +376,50 @@ if q == 'y':
     dut.write('fm:stat off')
     geni.write('lfo:stat off')
 
-# TODO: Test 8: PHI M
+# Test 8: PULSE IN
+q = input('PULSE IN testen? (y/n)')
+if q == 'y':
+    print('TRIG/FUNC OUT vom Geni mit PULSE IN vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
+    input()
+    freq_p_modin = 10e6
+    # Settings Speki
+    speki.write('disp:trac1:y:rlev 20')  # powerlevel Speki einstellen
+    speki.write('freq:cent ' + str(freq_p_modin))  # center Frequenz Speki einstellen
+    speki.write('freq:span ' + str(freq_p_modin/10))  # span frequenz Speki einstellen
+
+    # Settings Geni
+    geni.write('lfo:sour lfg')  # TRIG OUT/FUNC OUT Geni auf low frequency generator setzen
+    geni.write('lfo:shap square')  # TRIG OUT/FUNC OUT Form auf Rechteck setzen
+    geni.write('lfo freq 10')  # TRIG OUT/FUNC OUT Frequenz auf 10Hz setzen
+    geni.write('lfo:ampl 1')  # TRIG OUT/FUNC OUT Amplitude auf 1V setzen
+
+    # Settings DUT
+    dut.write('pow:mode CW')  # CW-Modus am Dut einstellen
+    dut.write('freq ' + str(freq_p_modin))  # CW-Frequenz am DUT setzen
+    dut.write('POW 0')  # Poweroutput vom DUT auf 0dBm setzen
+    dut.write('pulm:sour ext')  # Pulsemodulations-Quelle auf extern setzen
+
+    # Geni und DUT einschalten
+    dut.write('OUTP ON')  # Output am DUT aktivieren
+    dut.write('pulm:stat on')  # Pulsmodulation am DUT einschalten
+    geni.write('lfo:stat on')  # LF-Signal am Geni einschalten
+
+    t = input('Ist eine Pulsmodulation am Speki erkennbar? (y/n)')
+    if t == 'y':
+        print('PULSE IN erfolgreich getestet')
+    else:
+        print('PULSE IN Test failed')
+
+    # Geni und DUT wieder ausschalten
+    dut.write('OUTP OFF')
+    dut.write('pulm:stat off')
+    geni.write('lfo:stat off')
+# TODO: Test 9: PHI M
 # noch unklar wie testen, ist ein Input
 
-# TODO: Test 9: AM PULSE
+# TODO: Test 10: AM PULSE
+
+
 
 # schliesse die visa Verbindungen
 speki.close()
