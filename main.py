@@ -3,13 +3,19 @@ import pyvisa as visa
 import numpy as np
 import math
 
+# IP-Adressen vom User holen
+dutip = input('letzte Ziffern der IP vom DUT eingeben:')
+geniip = input('letzte Ziffern der IP vom Geni eingeben:')
+
 # Initialisierung (noch eine Funktion daraus machen)
 rm = visa.ResourceManager()
+res = rm.list_resources()
+
 speki = rm.open_resource('GPIB1::20::INSTR')  # Verbindung zu Speki erstellen
 ip_dut = '192.168.1.186'  # IP-Adresse DUT
-dut = rm.open_resource('TCPIP0::' + ip_dut + '::inst0::INSTR')  # Verbindung zu DUT erstellen
+dut = rm.open_resource('TCPIP0::192.168.1.' + dutip + '::inst0::INSTR')  # Verbindung zu DUT erstellen
 ip_geni = '192.168.1.154'  # IP-Adresse Geni
-geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
+geni = rm.open_resource('TCPIP0::192.168.1.' + geniip + '::inst0::INSTR')
 
 # Speki initialisieren
 speki.read_termination = '\n'
@@ -208,12 +214,12 @@ if q == 'y':
         geni.write('rosc:outp off')  # REF OUT vom Geni ausschalten
         dut.write('rosc:sour int')  # REF IN Quelle vom DUT auf INT setzen
 
-# Test 4: FUNC OUT
+# Test 4: FUNC OUT / TRIG OUT
 # benötigte Geräte: DUT und Speki
 # prüft bei verschiedenen Frequenzen, ob der FUNC OUT Sinus die korrekte Frequenz ausgibt
-q = input('FUNC OUT testen? (y/n)')
+q = input('FUNC OUT / TRIG OUT testen? (y/n)')
 if q == 'y':
-    print('FUNC OUT vom DUT mit Speki verbinden und Enter drücken')
+    print('FUNC OUT /TRIG OUT vom DUT mit Speki verbinden und Enter drücken')
     input()
     f_lf = np.linspace(10e4, 3e6, num=5)  # Frequenzen, die getestet werden
     amp = 0.5  # Spannungsamplitude definieren [V]
@@ -237,55 +243,17 @@ if q == 'y':
         sleep(t)
         p_func = speki.query('calc:mark1:y?')  # Power bei Marker abfragen
         dev_funcout_f = (float(f_func) - f) / f  # Frequenzabweichung berechnen
-        print('rel. Abweichung f FUNC OUT: ' + str("{:.4f}".format(dev_funcout_f)))
-        if abs(dev_funcout_f) < 0.005 and float(p_func) > -5:  # Test bestanden, wenn Frequenz-Abweichung kleiner als 0.5% ist
-            print('FUNC OUT: Test erfolgreich bei ' + str("{:.3f}".format(f)) + 'Hz')
+        print('rel. Abweichung f FUNC OUT / TRIG OUT: ' + str("{:.4f}".format(dev_funcout_f)))
+        if abs(dev_funcout_f) < 0.005 and float(p_func) > -5:  # Test bestanden, wenn Frequenz-Abweichung < 0.5% ist
+            print('FUNC OUT / TRIG OUT: Test erfolgreich bei ' + str("{:.3f}".format(f)) + 'Hz')
         else:
-            print('FUNC OUT: Test failed bei ' + str("{:.3f}".format(f)) + 'Hz')
+            print('FUNC OUT / TRIG OUT: Test failed bei ' + str("{:.3f}".format(f)) + 'Hz')
     dut.write('lfo:stat off')  # FUNC OUT port abschalten
     speki.write('calc:mark1:off')  # Marker abschalten
 
-# Test 5: TRIG OUT
-# benötigte Geräte: DUT und Speki
-# prüft bei verschiedenen Frequenzen, ob der TRIG OUT Sinus die korrekte Frequenz ausgibt
-q = input('TRIG OUT testen? (y/n)')
-if q == 'y':
-    print('TRIG OUT vom DUT mit Speki verbinden und Enter drücken')
-    input()
-    f_trig = np.linspace(10e4, 3e6, num=5)  # Frequenzen, die getestet werden
-    amp = 0.5  # Spannungsamplitude definieren [V]
-    amp_dBm = math.ceil(10 * math.log10((amp ** 2 / 50) * 1000))  # berechne theoretische, gerundete Leistung in dBm
-    sleep(t)
-    speki.write('disp:trac1:y:rlev ' + str(amp_dBm + 10))  # setze Powerlevel am Speki mit 10dB Sicherheitszuschlag
-    dut.write('lfo:sour lfg')  # TRIG OUT auf Low Frequency Generator setzen
-    dut.write('lfo:shap sine')  # Form des Outputs auf Sinus setzen
-    dut.write('lfo:ampl ' + str(amp))  # Spannungsamplitude am DUT setzen
-    dut.write('lfo:stat on')  # TRIG OUT port einschalten
-    for f in f_trig:
-        speki.write('freq:cent ' + str(f))
-        speki.write('freq:span ' + str(0.1 * f))
-        dut.write('lfo:freq ' + str(f))
-        sleep(t)
-        speki.write('calc:mark1 on')  # Marker einschalten
-        sleep(t)
-        speki.write('calc:mark1:max')  # Marker auf Peak setzen
-        sleep(t)
-        f_func = speki.query('calc:mark1:x?')  # Frequenz bei Marker abfragen
-        sleep(t)
-        p_trigout = speki.query('calc:mark1:y?')  # Power bei Marker abfragen
-        dev_trigout_f = (float(f_func) - f) / f  # Frequenzabweichung berechnen
-        print('rel. Abweichung f TRIG OUT: ' + str("{:.4f}".format(dev_trigout_f)))
-        if abs(dev_trigout_f) < 0.005 and float(p_trigout) > -5:  # Test bestanden, wenn Frequenz-Abweichung kleiner als 0.5%
-            print('TRIG OUT: Test erfolgreich bei ' + str("{:.3f}".format(f)) + 'Hz')
-        else:
-            print('TRIG OUT: Test failed bei ' + str("{:.3f}".format(f)) + 'Hz')
-    dut.write('lfo:stat off')  # TRIG OUT port abschalten
-    speki.write('calc:mark1:off')  # Marker abschalten
-
-# Test 6: TRIG IN
+# Test 5: TRIG IN
 # benötigte Geräte: Geni, DUT, Speki
 # prüft, ob mit dem TRIG IN port vom DUT ein Frequenzsweep durchgeführt werden kann
-# Geni settings setzen: 5000 Hz, Amplitude auf 0.5V, Square-Shape, LFGenerator mode (nicht Trig out!)
 q = input('TRIG IN testen? (y/n)')
 if q == 'y':
     print('TRIG/FUNC OUT vom Geni mit TRIG IN vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
@@ -335,11 +303,13 @@ if q == 'y':
     dut.write('freq:mode cw')
     geni.write('lfo:stat off')
 
-# Test 7: MOD IN
+# Test 6: MOD IN / ΦM
 # benötigte Geräte: Geni, DUT, Speki
-q = input('MOD IN testen? (y/n)')
+# prüft, ob mit dem DUT eine Frequenzmodulation durchgeführt werden kann
+# Der LF-Output des Genis dient mit eine Rechtecksignal als Quelle
+q = input('MOD IN / ΦM testen? (y/n)')
 if q == 'y':
-    print('TRIG/FUNC OUT vom Geni mit MOD IN vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
+    print('TRIG/FUNC OUT vom Geni mit MOD IN / ΦM vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
     input()
     freq_modin = 1e6
     # Settings Speki
@@ -367,19 +337,22 @@ if q == 'y':
 
     t = input('Ist eine Frequenzmodulation am Speki erkennbar? (y/n)')
     if t == 'y':
-        print('MOD IN erfolgreich getestet')
+        print('MOD IN / ΦM erfolgreich getestet')
     else:
-        print('MOD IN Test failed')
+        print('MOD IN / ΦM Test failed')
 
     # Geni und DUT wieder ausschalten
     dut.write('OUTP OFF')
     dut.write('fm:stat off')
     geni.write('lfo:stat off')
 
-# Test 8: PULSE IN
-q = input('PULSE IN testen? (y/n)')
+# Test 7: PULSE IN / AM PULSE
+# benötigte Geräte: Geni, DUT, Speki
+# prüft, ob mit dem DUT eine Pulsmodulation
+q = input('PULSE IN / AM PULSE testen? (y/n)')
 if q == 'y':
-    print('TRIG/FUNC OUT vom Geni mit PULSE IN vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
+    print('''TRIG / FUNC OUT vom Geni mit PULSE IN / AM PULSE vom DUT verbinden
+          RF OUT DUT mit Speki verbinden und Enter drücken''')
     input()
     freq_p_modin = 10e6
     # Settings Speki
@@ -406,23 +379,15 @@ if q == 'y':
 
     t = input('Ist eine Pulsmodulation am Speki erkennbar? (y/n)')
     if t == 'y':
-        print('PULSE IN erfolgreich getestet')
+        print('PULSE IN / AM PULSE erfolgreich getestet')
     else:
-        print('PULSE IN Test failed')
+        print('PULSE IN / AM PULSE Test failed')
 
     # Geni und DUT wieder ausschalten
     dut.write('OUTP OFF')
     dut.write('pulm:stat off')
     geni.write('lfo:stat off')
-# TODO: Test 9: PHI M
-# noch unklar wie testen, ist ein Input
 
-# TODO: Test 10: AM PULSE
-
-
-
-# schliesse die visa Verbindungen
+# schliesse die VISA Verbindungen
 speki.close()
 dut.close()
-
-# TODO: alle Tests als Funktionen definieren, danach die einzelnen Funktionen aufrufen um die Tests durchzuführen
