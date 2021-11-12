@@ -3,40 +3,64 @@ import pyvisa as visa
 import numpy as np
 import math
 
-# Initialisierung (Funktion erstellen)
+# Initialisierung (noch eine Funktion daraus machen)
 rm = visa.ResourceManager()
 speki = rm.open_resource('GPIB1::20::INSTR')  # Verbindung zu Speki erstellen
 ip_dut = '192.168.1.186'  # IP-Adresse DUT
 dut = rm.open_resource('TCPIP0::' + ip_dut + '::inst0::INSTR')  # Verbindung zu DUT erstellen
-ip_geni = '192.168.1.188'  # IP-Adresse Geni
+ip_geni = '192.168.1.154'  # IP-Adresse Geni
 geni = rm.open_resource('TCPIP0::' + ip_geni + '::inst0::INSTR')
 
+# Speki initialisieren
 speki.read_termination = '\n'
 speki.write_termination = '\n'
+speki.write('*RST')
+speki.write('disp:trac1:y:rlev 20')  # Sweep Time auf auto stellen
 speki.write('*CLS')  # clear error queue
-speki.write('calc:mark:aoff')  # alle Marker entfernen
 err_speki = speki.query('syst:err?')
-print('Speki error: ' + err_speki)
+speki.query('*OPC?')
+if "No error" in err_speki:
+    print('Speki error: ' + err_speki)
+else:
+    print('Fehler wird gecleart...')
+    speki.write('*CLS')
+    err_speki = speki.query('syst:err?')
+    print(('Speki error: ' + err_speki))
 
+# DUT initialisieren
 dut.read_termination = '\n'
 dut.write_termination = '\n'
 dut.write('*CLS')  # clear the error queue
-dut.write('syst:pres')  # set to the default settings
+dut.write('*RST')  # set to the default settings
 dut.query('*OPC?')  # wait for commands to be completed
 dut.write('POW:MODE CW')  # select the power mode CW
 err_dut = dut.query('syst:err?')
 dut.query('*OPC?')
-print('DUT error: ' + err_dut)
+if "No error" in err_dut:
+    print('DUT error: ' + err_dut)
+else:
+    print('DUT error wird versucht zu clearen...')
+    dut.write('*CLS')
+    err_speki = dut.query('syst:err?')
+    print(('DUT error: ' + err_dut))
 
+# Geni initialisieren
 geni.read_termination = '\n'
 geni.write_termination = '\n'
 geni.write('*CLS')  # clear the error queue
-geni.write('syst:pres')  # set to the default settings
+geni.write('*RST')  # set to the default settings
 geni.query('*OPC?')  # wait for commands to be completed
 geni.write('POW:MODE CW')  # select the power mode CW
-err_geni = dut.query('syst:err?')
+err_geni = geni.query('syst:err?')
 geni.query('*OPC?')
-print('Geni error: ' + err_geni)
+if "No error" in err_geni:
+    print('Geni error: ' + err_geni)
+else:
+    print('DUT error wird versucht zu clearen...')
+    geni.write('*CLS')
+    err_geni = geni.query('syst:err?')
+    print(('DUT error: ' + err_geni))
+
 
 t = 0.6  # Wartezeit zwischen Befehlen definieren [s]
 
@@ -114,7 +138,7 @@ if q == 'y':
         dev_pow = pow_rf - power
         print('rel. Abweichung f: ' + str("{:.4f}".format(dev_rf)) + ' bei ' + str(f) + ' Hz')
         print('Abweichung Power: ' + str("{:.2f}".format(dev_pow)) + ' dB')
-        if abs(dev_rf) < 0.01:
+        if abs(dev_rf) < 0.01 and abs(dev_pow) < 5:
             print('RF OUT Test erfolgreich bei ' + str(f) + ' Hz')
         else:
             print('RF OUT Test failed bei ' + str(f) + ' Hz')
@@ -137,7 +161,7 @@ if q == 'y':
         speki.write('freq:cent ' + str(f))  # Center einstellen
         speki.write('freq:span ' + str(0.1 * f))  # Span einstellen
         speki.write('swe:time:auto on')
-        speki.write('disp:trac1:y:rlev 10dBm')  # Powerlevel am Speki setzen
+        speki.write('disp:trac1:y:rlev 15dBm')  # Powerlevel am Speki setzen
         dut.write('ROSC:OUTP ON')  # Referenzoutput vom DUT aktivieren
         speki.write('calc:mark1 on')  # Marker einschalten
         sleep(t)
@@ -213,15 +237,15 @@ if q == 'y':
         sleep(t)
         p_func = speki.query('calc:mark1:y?')  # Power bei Marker abfragen
         dev_funcout_f = (float(f_func) - f) / f  # Frequenzabweichung berechnen
-        print('rel. Abweichung f FUNC OUT: ' + str(dev_funcout_f))
-        if dev_funcout_f <= 0.005:  # Test bestanden, wenn Frequenz-Abweichung kleiner als 0.5% ist
+        print('rel. Abweichung f FUNC OUT: ' + str("{:.4f}".format(dev_funcout_f)))
+        if abs(dev_funcout_f) < 0.005 and float(p_func) > -5:  # Test bestanden, wenn Frequenz-Abweichung kleiner als 0.5% ist
             print('FUNC OUT: Test erfolgreich bei ' + str("{:.3f}".format(f)) + 'Hz')
         else:
             print('FUNC OUT: Test failed bei ' + str("{:.3f}".format(f)) + 'Hz')
     dut.write('lfo:stat off')  # FUNC OUT port abschalten
     speki.write('calc:mark1:off')  # Marker abschalten
 
-# TODO: Test 5: TRIG OUT
+# Test 5: TRIG OUT
 # benötigte Geräte: DUT und Speki
 # prüft bei verschiedenen Frequenzen, ob der TRIG OUT Sinus die korrekte Frequenz ausgibt
 q = input('TRIG OUT testen? (y/n)')
@@ -248,17 +272,17 @@ if q == 'y':
         sleep(t)
         f_func = speki.query('calc:mark1:x?')  # Frequenz bei Marker abfragen
         sleep(t)
-        p_func = speki.query('calc:mark1:y?')  # Power bei Marker abfragen
+        p_trigout = speki.query('calc:mark1:y?')  # Power bei Marker abfragen
         dev_trigout_f = (float(f_func) - f) / f  # Frequenzabweichung berechnen
-        print('rel. Abweichung f TRIG OUT: ' + str(dev_trigout_f))
-        if dev_trigout_f <= 0.005:  # Test bestanden, wenn Frequenz-Abweichung kleiner als 0.5% ist
+        print('rel. Abweichung f TRIG OUT: ' + str("{:.4f}".format(dev_trigout_f)))
+        if abs(dev_trigout_f) < 0.005 and float(p_trigout) > -5:  # Test bestanden, wenn Frequenz-Abweichung kleiner als 0.5%
             print('TRIG OUT: Test erfolgreich bei ' + str("{:.3f}".format(f)) + 'Hz')
         else:
             print('TRIG OUT: Test failed bei ' + str("{:.3f}".format(f)) + 'Hz')
     dut.write('lfo:stat off')  # TRIG OUT port abschalten
     speki.write('calc:mark1:off')  # Marker abschalten
 
-# TODO: Test 6: TRIG IN
+# Test 6: TRIG IN
 # benötigte Geräte: Geni, DUT, Speki
 # prüft, ob mit dem TRIG IN port vom DUT ein Frequenzsweep durchgeführt werden kann
 # Geni settings setzen: 5000 Hz, Amplitude auf 0.5V, Square-Shape, LFGenerator mode (nicht Trig out!)
@@ -275,8 +299,8 @@ if q == 'y':
 
     # settings speki setzen
     speki.write('disp:trac1:y:rlev ' + str(amp_dBm + 5))  # powerlevel speki einstellen
-    speki.write('freq:start ' + str(freq_start))  # center frequenz speki einstellen
-    speki.write('freq:stop ' + str(freq_stop))  # span frequenz speki einstellen
+    speki.write('freq:start ' + str(freq_start))  # start frequenz speki einstellen
+    speki.write('freq:stop ' + str(freq_stop))  # stop frequenz speki einstellen
 
     # settings geni setzen
     geni.write('lfo:sour lfg')  # TRIG OUT Geni auf low frequency generator setzen
@@ -301,7 +325,7 @@ if q == 'y':
 
     # LF generator von Geni einschalten, um sweep zu starten
     geni.write('lfo:stat on')
-    t = input('Ist der Sweep am Speki erkennbar? (y/n)')
+    t = input('Ist ein Frequenz-Sweep am Speki erkennbar? (y/n)')
     if t == 'y':
         print('TRIG IN erfolgreich getestet')
     else:
@@ -311,10 +335,50 @@ if q == 'y':
     dut.write('freq:mode cw')
     geni.write('lfo:stat off')
 
-# TODO: Test 7: AM PULSE
-# noch unklar wie testen, ist ein Input
+# Test 7: MOD IN
+q = input('MOD IN testen? (y/n)')
+if q == 'y':
+    print('TRIG/FUNC OUT vom Geni mit MOD IN vom DUT verbinden, RF OUT DUT mit Speki verbinden und Enter drücken')
+    input()
+    freq_modin = 1e6
+    # Settings Speki
+    speki.write('disp:trac1:y:rlev 20')  # powerlevel speki einstellen
+    speki.write('freq:cent ' + str(freq_modin))  # center Frequenz Speki einstellen
+    speki.write('freq:span ' + str(freq_modin/10))  # span frequenz speki einstellen
+
+    # Settings Geni
+    geni.write('lfo:sour lfg')  # TRIG OUT/FUNC OUT Geni auf low frequency generator setzen
+    geni.write('lfo:shap sine')  # TRIG OUT/FUNC OUT Form auf square setzen
+    geni.write('lfo freq 10e3')  # TRIG OUT Frequenz auf 10kHz setzen
+    geni.write('lfo:ampl 1')  # TRIG OUT/FUNC OUt Amplitude auf 1V setzen
+
+    # Settings DUT
+    dut.write('pow:mode CW')  # CW-Modus am Dut einstellen
+    dut.write('freq ' + str(freq_modin))  # CW-Frequenz am DUT setzen
+    dut.write('POW 0')  # Poweroutput vom DUT auf 0dBm setzen
+    dut.write('fm:sour ext')  # FM-Quelle afu extern setzen
+    dut.write('fm:sens 5000')  # FM-Sensitivität auf 5kHz/V setzen
+
+    # Geni und DUT einschalten
+    dut.write('OUTP ON')  # Output am DUT aktivieren
+    dut.write('fm:stat on')
+    geni.write('lfo:stat on')  # LF-Signal am Geni einschalten
+
+    t = input('Ist eine Frequenzmodulation am Speki erkennbar? (y/n)')
+    if t == 'y':
+        print('MOD IN erfolgreich getestet')
+    else:
+        print('MOD IN Test failed')
+
+    # Geni und DUT wieder ausschalten
+    dut.write('OUTP OFF')
+    dut.write('fm:stat off')
+    geni.write('lfo:stat off')
+
 # TODO: Test 8: PHI M
 # noch unklar wie testen, ist ein Input
+
+# TODO: Test 9: AM PULSE
 
 # schliesse die visa Verbindungen
 speki.close()
